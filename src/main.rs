@@ -11,7 +11,7 @@ fn main() {
 /// On my Intel Arc A770 16GB, test passes with BASE_OFFSET = 64, but fails with BASE_OFFSET = 32 or 96.
 /// Incorrect reads are observed in the SBT.
 /// !!!! Change this into 32 to observe the bug !!!!
-const BASE_OFFSET: usize = 32;
+const BASE_OFFSET: usize = 64;
 
 // SBT Layout:
 // |             |      Raygen          |      Raymiss     |     Hitgroup     |

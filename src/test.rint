@@ -4,6 +4,6 @@ layout(set = 0, binding = 1) buffer outputBuffer {
     int data[];
 };
 void main() {
-    data[1] = 12777;
+    data[17] = 12777;
     reportIntersectionEXT(10.0, 0);
 }

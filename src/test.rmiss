@@ -4,5 +4,5 @@ layout(set = 0, binding = 1) buffer outputBuffer {
 };
 
 void main() {
-    data[0] = 125;
+    data[16] = 125;
 }

@@ -8,6 +8,16 @@ fn main() {
     }
 }
 
+/// On my Intel Arc A770 16GB, test passes with BASE_OFFSET = 64, but fails with BASE_OFFSET = 32 or 96.
+/// Incorrect reads are observed in the SBT.
+/// !!!! Change this into 32 to observe the bug !!!!
+const BASE_OFFSET: usize = 32;
+
+// SBT Layout:
+// |             |      Raygen          |      Raymiss     |     Hitgroup     |
+// | BASE_OFFSET |32|-SBT Data 64 bytes-|-32-|   Not used  |-32-|   Not used  |
+//                    ^^^ Incorrect read here
+
 unsafe fn create_buffer(
     device: &ash::Device,
     memory_type_index: u32,
@@ -61,7 +71,7 @@ unsafe fn run() {
             None,
         )
         .unwrap();
-    let pdevice = instance.enumerate_physical_devices().unwrap()[1];
+    let pdevice = instance.enumerate_physical_devices().unwrap()[0];
     let pdevice_properties = instance.get_physical_device_properties(pdevice);
     let device_name = std::ffi::CStr::from_ptr(pdevice_properties.device_name.as_ptr() as _);
     println!("Using device: {}", device_name.to_str().unwrap());
@@ -613,9 +623,6 @@ unsafe fn run() {
         device.unmap_memory(results_memory);
     }
 
-    // Sbt1:
-    // |      Raygen      |      Raymiss     |     Hitgroup     |
-    // |-----128 bytes----|-----128 bytes----|-----128 bytes----|
     let (sbt1_buffer, sbt1_memory) = create_buffer(
         &device,
         memory_type_index,
@@ -627,9 +634,14 @@ unsafe fn run() {
         let ptr = device
             .map_memory(sbt1_memory, 0, 1000, Default::default())
             .unwrap() as *mut u8;
-        std::ptr::copy_nonoverlapping(group_handles.as_ptr(), ptr, 32);
-        std::ptr::copy_nonoverlapping(group_handles.as_ptr().add(32), ptr.add(128), 32);
-        std::ptr::copy_nonoverlapping(group_handles.as_ptr().add(64), ptr.add(256), 32);
+
+        let sbt_data: [u32; 16] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+        std::ptr::copy_nonoverlapping(group_handles.as_ptr(), ptr.add(0 + BASE_OFFSET), 32);
+        std::ptr::copy_nonoverlapping(sbt_data.as_ptr() as *const u8, ptr.add(0 + BASE_OFFSET + 32), 64);
+
+        std::ptr::copy_nonoverlapping(group_handles.as_ptr().add(32), ptr.add(96 + BASE_OFFSET), 32);
+
+        std::ptr::copy_nonoverlapping(group_handles.as_ptr().add(64), ptr.add(96*2 + BASE_OFFSET), 32);
         device.unmap_memory(sbt1_memory);
     }
 
@@ -709,18 +721,18 @@ unsafe fn run() {
     assert!(base_address % 64 == 0);
     rtx_pipeline_loader.cmd_trace_rays(command_buffer,
         &vk::StridedDeviceAddressRegionKHR {
-            device_address: base_address,
+            device_address: base_address + 0 + BASE_OFFSET as u64,
             stride: 96,
             size: 96,
         },
         &vk::StridedDeviceAddressRegionKHR {
-            device_address: base_address + 128,
-            stride: 128,
+            device_address: base_address + 96 + BASE_OFFSET as u64,
+            stride: 96,
             size: 96,
         },
         &vk::StridedDeviceAddressRegionKHR {
-            device_address: base_address + 256,
-            stride: 128,
+            device_address: base_address + 96*2 + BASE_OFFSET as u64,
+            stride: 96,
             size: 96,
         }, &vk::StridedDeviceAddressRegionKHR::default(), 1, 1, 1);
     device.end_command_buffer(command_buffer).unwrap();
@@ -735,7 +747,14 @@ unsafe fn run() {
 
 
     let ptr = device.map_memory(results_memory, 0, 1000, Default::default()).unwrap() as *mut u8;
-    let num = *(ptr as *const u32);
-    assert_eq!(*((ptr as *const u32).add(1)), 12777);
-    assert_eq!(num, 120000);
+    let results = std::slice::from_raw_parts(ptr as *const u8 as *const u32, 1000);
+
+    for i in 0..16 {
+        // The ray gen shader copies all raygen data into the results buffer. Assert that they're the same as the one
+        // we put in, on line 633.
+        assert_eq!(results[i], i as u32);
+    }
+    assert_eq!(results[17], 12777); // intersection shader ran
+    assert_eq!(results[16], 120000); // closest hit shader ran
+    println!("Test passed!");
 }

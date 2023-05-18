@@ -1,0 +1,27 @@
+#version 460
+#extension GL_EXT_ray_tracing : require
+
+layout(set = 0, binding = 0) uniform accelerationStructureEXT accelerationStructure;
+layout(set = 0, binding = 1) buffer outputBuffer {
+    int data[];
+};
+layout(location = 0) rayPayloadEXT uint _ray_payload_not_used;
+
+
+void main() {
+    data[0] = 123;
+
+    traceRayEXT(
+        accelerationStructure,
+        gl_RayFlagsOpaqueEXT, // RayFlags
+        0xFF, // CullMask
+        0, // SBT offset, ray type index
+        1, // SBT stride, number of ray types // TODO: Make this a shader constant
+        0, // missIndex
+        vec3(0.5, 0.5, 0.5),     // ray origin
+        0.001,           // ray min range
+        vec3(-1.0, 0.0, 0.0), // direction
+        10000.0, // tmax
+        0 // payload
+    );
+}
